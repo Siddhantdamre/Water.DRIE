@@ -1,0 +1,112 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+from sklearn.metrics import classification_report, mean_squared_error
+from sklearn.preprocessing import StandardScaler
+from imblearn.over_sampling import SMOTE
+import streamlit as st
+
+# Load and preprocess data
+def load_and_preprocess_data():
+    # Simulated dataset with more diversity in environmental features
+    data = pd.DataFrame({
+        'rainfall_mm': np.random.uniform(0, 500, 1000),
+        'temperature_avg': np.random.uniform(-10, 50, 1000),
+        'evaporation_rate_mm': np.random.uniform(0, 10, 1000),
+        'soil_moisture': np.random.uniform(0, 1, 1000),
+        'ndwi': np.random.uniform(-1, 1, 1000),
+        'water_level': np.random.uniform(0, 10, 1000),
+        'rainfall_7day_avg': np.random.uniform(0, 500, 1000),
+        'temperature_7day_avg': np.random.uniform(-10, 50, 1000),
+        'will_dry': np.random.randint(0, 2, 1000),  # 0 = Not dry, 1 = Dry
+        'time_to_dry': np.random.uniform(0, 365, 1000)  # Random days for time to dry
+    })
+
+    # Features and targets
+    X = data[['rainfall_mm', 'temperature_avg', 'evaporation_rate_mm', 'soil_moisture',
+              'ndwi', 'water_level', 'rainfall_7day_avg', 'temperature_7day_avg']]
+    y_classification = data['will_dry']  # Classification target
+    y_regression = data['time_to_dry']  # Regression target
+
+    # Handle class imbalance with SMOTE
+    smote = SMOTE(random_state=42)
+    X_resampled, y_class_resampled = smote.fit_resample(X, y_classification)
+
+    # Train-test split
+    X_train, X_test, y_train_class, y_test_class = train_test_split(X_resampled, y_class_resampled, test_size=0.2, random_state=42)
+    _, _, y_train_reg, y_test_reg = train_test_split(X_resampled, y_regression, test_size=0.2, random_state=42)
+
+    # Standardize features
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    return X_train_scaled, X_test_scaled, y_train_class, y_test_class, y_train_reg, y_test_reg, scaler
+
+# Train classifier
+def train_classifier(X_train, y_train):
+    classifier = RandomForestClassifier(n_estimators=100, random_state=42)
+    classifier.fit(X_train, y_train)
+    return classifier
+
+# Train regressor
+def train_regressor(X_train, y_train):
+    regressor = RandomForestRegressor(n_estimators=100, random_state=42)
+    regressor.fit(X_train, y_train)
+    return regressor
+
+# Streamlit app UI
+def run_app():
+    st.title('Water Body Dry-Up Prediction System')
+
+    # Sidebar information
+    st.sidebar.markdown('### User Guide:')
+    st.sidebar.write('1. Enter environmental data.')
+    st.sidebar.write('2. Click the "Predict" button to check if the water body is likely to dry up and how long it will take.')
+    
+    st.sidebar.markdown('### Example Data:')
+    st.sidebar.write('Rainfall: 10 mm, Temperature: 25 °C, Evaporation Rate: 2.5 mm, Soil Moisture: 0.5')
+    
+    # Load and preprocess data
+    X_train, X_test, y_train_class, y_test_class, y_train_reg, y_test_reg, scaler = load_and_preprocess_data()
+
+    # Train models
+    classifier = train_classifier(X_train, y_train_class)
+    regressor = train_regressor(X_train, y_train_reg)
+
+    # Input form for user data
+    st.header("Enter Environmental Data for Prediction")
+
+    with st.form("prediction_form"):
+        rainfall_mm = st.number_input('Rainfall (mm)', min_value=0.0, max_value=500.0, value=10.0)
+        temperature_avg = st.number_input('Temperature (°C)', min_value=-10.0, max_value=50.0, value=25.0)
+        evaporation_rate_mm = st.number_input('Evaporation Rate (mm)', min_value=0.0, max_value=10.0, value=2.5)
+        soil_moisture = st.number_input('Soil Moisture', min_value=0.0, max_value=1.0, value=0.5)
+        ndwi = st.number_input('NDWI', min_value=-1.0, max_value=1.0, value=0.0)
+        water_level = st.number_input('Water Level (m)', min_value=0.0, max_value=10.0, value=5.0)
+        rainfall_7day_avg = st.number_input('7-Day Avg Rainfall (mm)', min_value=0.0, max_value=500.0, value=20.0)
+        temperature_7day_avg = st.number_input('7-Day Avg Temperature (°C)', min_value=-10.0, max_value=50.0, value=30.0)
+
+        # Submit button
+        submit_button = st.form_submit_button("Predict")
+
+    if submit_button:
+        # Prepare input data for prediction
+        input_data = np.array([[rainfall_mm, temperature_avg, evaporation_rate_mm, soil_moisture,
+                                ndwi, water_level, rainfall_7day_avg, temperature_7day_avg]])
+        input_data_scaled = scaler.transform(input_data)
+
+        # Classification prediction (will it dry up?)
+        will_dry = classifier.predict(input_data_scaled)[0]
+        if will_dry == 1:
+            st.write("### The water body is likely to dry up.")
+            # Regression prediction (time to dry)
+            time_to_dry = regressor.predict(input_data_scaled)[0]
+            st.write(f"### Estimated time to dry: {time_to_dry:.2f} days.")
+        else:
+            st.write("### The water body is not likely to dry up.")
+
+# Run the Streamlit app
+if __name__ == '__main__':
+    run_app()
